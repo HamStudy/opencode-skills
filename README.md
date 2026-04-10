@@ -10,7 +10,7 @@ A curated collection of installable skills for agentic development. Each skill p
 
 ## Installation
 
-These skills are designed to work with [OpenCode](https://github.com/opencode-ai) and can be installed using `skills.sh`.
+These skills are designed to work with [OpenCode](https://github.com/anomalyco/opencode) and can be installed using `skills.sh`.
 
 ### Quick Install
 
@@ -26,7 +26,7 @@ skills.sh install-all
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/agent-skills.git
+   git clone https://github.com/HamStudy/create-agent-skills.git
    cd agent-skills
    ```
 
@@ -120,10 +120,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for:
 
 ## Support
 
-- Open an issue for bugs or feature requests
-- Start a discussion for questions about skills
-- Check individual skill documentation for specific usage questions
+PRs will be considered
 
 ---
 
-**Note**: These skills are community-maintained. For production use, please review and adapt to your specific requirements.
