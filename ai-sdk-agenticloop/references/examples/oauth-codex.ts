@@ -1,12 +1,42 @@
+/**
+ * OAUTH IMPLEMENTATION FOR CHATGPT/CODEX WITH MANDATORY REFRESH TOKEN SUPPORT
+ *
+ * ⚠️  CRITICAL REQUIREMENT: Your OAuth implementation MUST support refresh tokens.
+ *     Access tokens expire (usually in 1-2 hours). Without refresh token support,
+ *     users will be forced to re-authenticate constantly.
+ *
+ * This example demonstrates:
+ * - PKCE flow for secure OAuth authentication
+ * - Automatic token refresh (REQUIRED - not optional)
+ * - Secure token storage with proper file permissions
+ * - Complete token lifecycle management
+ *
+ * PREREQUISITES:
+ * 1. Install dependencies:
+ *    npm install open
+ *
+ * 2. This example uses the Codex OAuth endpoints as a reference implementation.
+ *    For your own OAuth provider, update the endpoints accordingly.
+ *
+ * TOKEN LIFECYCLE:
+ * 1. First auth: User completes OAuth flow → receives access_token + refresh_token
+ * 2. Usage: Use access_token for API calls
+ * 3. Expiration: When access_token expires (or is about to), use refresh_token to get new tokens
+ * 4. Storage: Save both tokens securely - refresh_token is long-lived and reusable
+ *
+ * REFRESH TOKEN IS MANDATORY:
+ * - Never implement OAuth without refresh token support
+ * - Always check token expiration before API calls
+ * - Automatically refresh when expired or about to expire (5 min buffer recommended)
+ * - Store refresh_token securely - it's equivalent to a password
+ */
+
 import { createServer } from "http";
 import { randomBytes, createHash } from "crypto";
 import { chmod, writeFile, readFile, mkdir } from "fs/promises";
 import { homedir, platform } from "os";
 import { dirname, join } from "path";
 import open from "open";
-
-// OAuth implementation for ChatGPT/Codex-style authentication
-// This example shows the PKCE flow used by Codex
 
 interface OAuthConfig {
   clientId: string;
@@ -16,33 +46,49 @@ interface OAuthConfig {
   scopes: string[];
 }
 
+/**
+ * TokenData represents the complete OAuth token response.
+ *
+ * ⚠️  CRITICAL: Both accessToken AND refreshToken must be stored.
+ *     The refreshToken is required for automatic token renewal.
+ */
 interface TokenData {
+  /** Short-lived token for API calls (expires in 1-2 hours typically) */
   accessToken: string;
+  /** Long-lived token used to get new access tokens (REQUIRED - store this!) */
   refreshToken: string;
+  /** Unix timestamp when accessToken expires */
   expiresAt: number;
+  /** Optional account identifier */
   accountId?: string;
 }
 
+/**
+ * CodexOAuthFlow handles the OAuth PKCE authentication flow.
+ *
+ * Includes MANDATORY refresh token support. Never use OAuth without this.
+ */
 class CodexOAuthFlow {
   private codeVerifier: string;
   private config: OAuthConfig;
 
   constructor() {
     // Codex-specific configuration
+    // For your own OAuth provider, update these endpoints
     this.config = {
-      clientId: "codex_cli", // Codex uses this client ID
+      clientId: "codex_cli",
       authorizationEndpoint: "https://chatgpt.com/backend-api/codex/authorize",
       tokenEndpoint: "https://chatgpt.com/backend-api/codex/token",
       redirectUri: "http://localhost:8080/callback",
       scopes: ["openid", "codex"],
     };
 
-    // Generate PKCE code verifier
+    // Generate PKCE code verifier (one-time use per auth flow)
     this.codeVerifier = this.generateCodeVerifier();
   }
 
   private generateCodeVerifier() {
-    // PKCE requires a random code verifier
+    // PKCE requires a random code verifier (32 bytes minimum)
     return randomBytes(32).toString("base64url");
   }
 
@@ -52,15 +98,21 @@ class CodexOAuthFlow {
   }
 
   private generateState() {
-    // Random state to prevent CSRF
+    // Random state to prevent CSRF attacks
     return randomBytes(16).toString("hex");
   }
 
-  async authenticate() {
+  /**
+   * Initiate the OAuth flow to get initial tokens.
+   *
+   * This opens a browser for user authentication.
+   * Returns both accessToken AND refreshToken.
+   */
+  async authenticate(): Promise<TokenData> {
     const state = this.generateState();
     const codeChallenge = this.generateCodeChallenge();
 
-    // Build authorization URL
+    // Build authorization URL with PKCE parameters
     const authUrl = new URL(this.config.authorizationEndpoint);
     authUrl.searchParams.set("client_id", this.config.clientId);
     authUrl.searchParams.set("response_type", "code");
@@ -73,10 +125,10 @@ class CodexOAuthFlow {
     console.log("Starting OAuth flow...");
     console.log("Opening browser for authentication...");
 
-    // Start local server to receive callback
+    // Start local server to receive the authorization callback
     const code = await this.startCallbackServer(state, authUrl);
 
-    // Exchange code for tokens
+    // Exchange authorization code for tokens
     return this.exchangeCode(code);
   }
 
@@ -100,7 +152,7 @@ class CodexOAuthFlow {
         const error = url.searchParams.get("error");
         const errorDescription = url.searchParams.get("error_description");
 
-        // Handle errors
+        // Handle OAuth errors
         if (error) {
           res.writeHead(400);
           res.end(`Error: ${error}\n${errorDescription || ""}`);
@@ -109,7 +161,7 @@ class CodexOAuthFlow {
           return;
         }
 
-        // Verify state
+        // Verify state parameter (CSRF protection)
         if (state !== expectedState) {
           res.writeHead(400);
           res.end("Invalid state parameter");
@@ -118,7 +170,7 @@ class CodexOAuthFlow {
           return;
         }
 
-        // Check for code
+        // Verify we got an authorization code
         if (!code) {
           res.writeHead(400);
           res.end("No authorization code received");
@@ -127,7 +179,7 @@ class CodexOAuthFlow {
           return;
         }
 
-        // Success
+        // Success - show user a nice message
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(`
           <html>
@@ -158,7 +210,14 @@ class CodexOAuthFlow {
     });
   }
 
-  private async exchangeCode(code: string) {
+  /**
+   * Exchange authorization code for access and refresh tokens.
+   *
+   * ⚠️  CRITICAL: The response MUST include a refresh_token.
+   *     If your OAuth provider doesn't return refresh_token, you cannot
+   *     implement automatic token renewal.
+   */
+  private async exchangeCode(code: string): Promise<TokenData> {
     const response = await fetch(this.config.tokenEndpoint, {
       method: "POST",
       headers: {
@@ -180,6 +239,15 @@ class CodexOAuthFlow {
 
     const data = await response.json();
 
+    // ⚠️  CRITICAL: Verify we got a refresh token
+    if (!data.refresh_token) {
+      throw new Error(
+        "OAuth response missing refresh_token. " +
+          "Automatic token renewal is impossible. " +
+          "Check your OAuth scope includes 'offline_access' or equivalent.",
+      );
+    }
+
     return {
       accessToken: data.access_token,
       refreshToken: data.refresh_token,
@@ -188,7 +256,19 @@ class CodexOAuthFlow {
     };
   }
 
-  async refreshTokens(refreshToken: string) {
+  /**
+   * Refresh expired access token using the refresh token.
+   *
+   * ⚠️  MANDATORY: This method MUST be implemented and used.
+   *     Access tokens expire frequently (1-2 hours).
+   *     Without this, users will constantly need to re-authenticate.
+   *
+   * @param refreshToken - The long-lived refresh token from initial auth
+   * @returns New TokenData with fresh accessToken and possibly new refreshToken
+   */
+  async refreshTokens(refreshToken: string): Promise<TokenData> {
+    console.log("Refreshing access token...");
+
     const response = await fetch(this.config.tokenEndpoint, {
       method: "POST",
       headers: {
@@ -208,20 +288,32 @@ class CodexOAuthFlow {
 
     const data = await response.json();
 
+    // Some providers return a new refresh_token, others don't
+    // Always use the new one if provided, otherwise keep the old one
+    const newRefreshToken = data.refresh_token || refreshToken;
+
+    console.log("Token refreshed successfully");
+
     return {
       accessToken: data.access_token,
-      refreshToken: data.refresh_token || refreshToken,
+      refreshToken: newRefreshToken,
       expiresAt: Date.now() / 1000 + data.expires_in,
       accountId: data.account_id,
     };
   }
 }
 
+/**
+ * TokenStore handles secure storage of OAuth tokens.
+ *
+ * ⚠️  CRITICAL: Both accessToken AND refreshToken must be persisted.
+ *     The refreshToken is required for automatic token renewal.
+ */
 class TokenStore {
   private filePath: string;
 
   constructor() {
-    // Platform-specific config directory
+    // Platform-specific config directory with proper security
     const home = homedir();
     const configDir =
       platform() === "darwin"
@@ -233,28 +325,37 @@ class TokenStore {
     this.filePath = join(configDir, "auth.json");
   }
 
+  /**
+   * Save tokens to secure storage.
+   *
+   * ⚠️  CRITICAL: Must save BOTH accessToken AND refreshToken.
+   */
   async save(provider: string, tokens: TokenData) {
-    await mkdir(dirname(this.filePath), {
-      recursive: true,
-    });
+    await mkdir(dirname(this.filePath), { recursive: true });
 
     let data: Record<string, TokenData> = {};
     try {
       const existing = await readFile(this.filePath, "utf-8");
       data = JSON.parse(existing);
     } catch {
-      // File doesn't exist yet
+      // File doesn't exist yet - that's fine
     }
 
     data[provider] = tokens;
     await writeFile(this.filePath, JSON.stringify(data, null, 2));
 
     // Set restrictive permissions (Unix only)
+    // 0o600 = read/write for owner only
     if (platform() !== "win32") {
       await chmod(this.filePath, 0o600);
     }
+
+    console.log(`Tokens saved for ${provider}`);
   }
 
+  /**
+   * Load tokens from secure storage.
+   */
   async load(provider: string): Promise<TokenData | null> {
     try {
       const content = await readFile(this.filePath, "utf-8");
@@ -266,28 +367,52 @@ class TokenStore {
   }
 }
 
-// Main flow
-async function authenticateCodex() {
+/**
+ * Authenticate with automatic token refresh.
+ *
+ * ⚠️  CRITICAL: This demonstrates the COMPLETE token lifecycle:
+ * 1. Check for existing tokens
+ * 2. If expired (or about to expire), refresh them
+ * 3. If no tokens, start OAuth flow
+ * 4. Return valid, non-expired tokens
+ *
+ * ALWAYS implement this full workflow. Never skip refresh support.
+ */
+async function authenticateCodex(): Promise<TokenData> {
   const store = new TokenStore();
+  const oauth = new CodexOAuthFlow();
 
-  // Check for existing tokens
+  // Step 1: Check for existing tokens
   let tokens = await store.load("codex");
 
   if (tokens) {
-    // Check if expired
-    if (tokens.expiresAt < Date.now() / 1000 + 300) {
-      console.log("Token expired, refreshing...");
-      const oauth = new CodexOAuthFlow();
-      tokens = await oauth.refreshTokens(tokens.refreshToken);
-      await store.save("codex", tokens);
-      console.log("Token refreshed successfully");
+    // Step 2: Check if token is expired or about to expire
+    // 300 second (5 minute) buffer - refresh before actual expiration
+    const isExpiredOrExpiringSoon = tokens.expiresAt < Date.now() / 1000 + 300;
+
+    if (isExpiredOrExpiringSoon) {
+      console.log("Token expired or expiring soon, refreshing...");
+
+      try {
+        // ⚠️  MANDATORY: Use refresh token to get new access token
+        tokens = await oauth.refreshTokens(tokens.refreshToken);
+        await store.save("codex", tokens);
+        console.log("Token refreshed successfully");
+      } catch (error) {
+        console.error("Token refresh failed:", error);
+        console.log("Falling back to full re-authentication...");
+
+        // If refresh fails (e.g., refresh token revoked), start over
+        tokens = await oauth.authenticate();
+        await store.save("codex", tokens);
+        console.log("Re-authentication successful");
+      }
     } else {
       console.log("Using existing valid token");
     }
   } else {
-    // No tokens, start OAuth flow
+    // Step 3: No tokens found - start OAuth flow
     console.log("No tokens found, starting OAuth flow...");
-    const oauth = new CodexOAuthFlow();
     tokens = await oauth.authenticate();
     await store.save("codex", tokens);
     console.log("Authentication successful, tokens saved");
@@ -296,18 +421,17 @@ async function authenticateCodex() {
   return tokens;
 }
 
-// Run if executed directly
+// Example usage
 if (import.meta.main) {
   authenticateCodex()
     .then((tokens) => {
-      console.log("Access token obtained successfully");
-      console.log(
-        "Expires at:",
-        new Date(tokens.expiresAt * 1000).toLocaleString(),
-      );
+      console.log("\n✓ Authentication complete");
+      console.log("Access token:", tokens.accessToken.slice(0, 20) + "...");
+      console.log("Expires at:", new Date(tokens.expiresAt * 1000).toLocaleString());
+      console.log("\nThis token will be automatically refreshed when needed.");
     })
     .catch((error) => {
-      console.error("Authentication failed:", error.message);
+      console.error("\n✗ Authentication failed:", error.message);
       process.exit(1);
     });
 }
