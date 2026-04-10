@@ -1,11 +1,11 @@
 ---
 name: ai-sdk-agenticloop
-description: Build your own provider-agnostic agent system using Vercel AI SDK. Learn to implement authentication (API keys, OAuth), provider registry, message normalization, and special cases for 15+ providers (OpenAI, Anthropic, Codex, etc.). Use when creating agent systems that work across multiple AI providers without vendor lock-in.
+description: Build your own provider-agnostic agent system using Vercel AI SDK. Learn to use ToolLoopAgent for automatic tool execution loops, authentication (API keys, OAuth), provider registry, message normalization, and special cases for 15+ providers (OpenAI, Anthropic, Codex, etc.). Use when creating agent systems that work across multiple AI providers without vendor lock-in.
 compatibility: opencode
 metadata:
   category: integration
   audience: developers
-  version: "5"
+  version: "6"
 ---
 
 # AI SDK Agentic Loop
@@ -34,6 +34,7 @@ Agent (done): "Fixed! The bug was on line 23..."
 
 This guide shows you how to build agents that:
 
+- Use **`ToolLoopAgent`** for automatic tool loop handling (no manual maxSteps management)
 - Work with **any AI provider** (switch from OpenAI to Anthropic by changing one string)
 - Handle **provider quirks automatically** (message formatting, tool ID sanitization)
 - Support **OAuth and API keys** with automatic token refresh
@@ -72,15 +73,14 @@ bun add ai @ai-sdk/openai zod
 Create a file called `agent.ts`:
 
 ```typescript
-import { openai } from "@ai-sdk/openai";
-import { streamText, tool } from "ai";
+import { ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 import "dotenv/config"; // Loads API keys from .env file
 
 // 1. Define a tool (a function the AI can call)
 const calculator = tool({
   description: "Add two numbers",
-  parameters: z.object({
+  inputSchema: z.object({
     a: z.number(),
     b: z.number(),
   }),
@@ -90,25 +90,17 @@ const calculator = tool({
   },
 });
 
-// 2. Run the agent
-async function main() {
-  const result = await streamText({
-    model: openai("gpt-5.4-mini"), // Cheap model for testing
-    tools: { calculator },
-    maxSteps: 5, // Max tool calls before stopping
-    messages: [
-      {
-        role: "user",
-        content: "What is 123 + 456?",
-      },
-    ],
-  });
+// 2. Create the agent with ToolLoopAgent
+const agent = new ToolLoopAgent({
+  model: "openai/gpt-4o-mini", // Cheap model for testing
+  instructions: "You are a helpful assistant that can use tools to help users.",
+  tools: { calculator },
+});
 
-  // Print the response as it streams in
-  for await (const chunk of result.textStream) {
-    process.stdout.write(chunk);
-  }
-  console.log("\n[Done]");
+// 3. Run the agent
+async function main() {
+  const result = await agent.run("What is 123 + 456?");
+  console.log(result.text);
 }
 
 main();
@@ -134,41 +126,44 @@ bun run agent.ts
 ```
 [Tool called] Adding 123 + 456
 The result is 579.
-[Done]
 ```
 
 ### What Just Happened?
 
-1. **streamText** - Called OpenAI with your message
+1. **ToolLoopAgent** - Created an agent that automatically handles the tool-calling loop
 2. **AI decided to use tool** - GPT-4 recognized this was a math problem
 3. **Tool executed** - Your `calculator` function ran with `{a: 123, b: 456}`
 4. **AI responded** - Used the tool result to answer your question
-5. **maxSteps** - Limited to 5 tool calls to prevent infinite loops
+5. **Automatic loop handling** - `ToolLoopAgent` manages the conversation flow, not `maxSteps`
 
 ### Key Concepts Explained
 
-**What is `streamText`?**
-A function from the AI SDK that:
+**What is `ToolLoopAgent`?**
+A class from the AI SDK that:
 
-- Sends messages to an AI provider
-- Handles the tool-calling loop automatically
-- Returns results as a stream (you get chunks as they're generated)
+- Manages the entire agent loop automatically (no manual step counting)
+- Handles conversation state between tool calls
+- Works with any AI provider through a unified interface
+- Provides type safety for tools and responses
 
 **What are `tools`?**
 Functions you define that the AI can call. Each tool has:
 
 - `description` - Tells the AI when to use it
-- `parameters` - Zod schema defining what arguments the AI should pass
+- `inputSchema` - Zod schema defining what arguments the AI should pass
 - `execute` - Your code that runs when the AI calls the tool
 
-**What is `maxSteps`?**
-The maximum number of AI↔Tool interactions. Each "step" is:
+**Why ToolLoopAgent instead of streamText with maxSteps?**
 
-1. AI thinks and decides to call a tool
-2. Tool executes and returns result
-3. AI sees result and thinks again
+| Feature | streamText + maxSteps | ToolLoopAgent |
+|---------|----------------------|---------------|
+| Loop management | Manual (you track steps) | Automatic (built-in) |
+| Provider syntax | `openai("gpt-4")` function call | `"openai/gpt-4"` string |
+| Tool execution | Inferred from response | Native support |
+| State management | You handle messages | Agent manages state |
+| Type safety | Limited | Full inference with `InferAgentUIMessage` |
 
-Without `maxSteps`, a confused AI could loop forever calling tools.
+**Recommendation:** Use `ToolLoopAgent` for all new agent development. It's the modern, recommended approach.
 
 ---
 
@@ -176,33 +171,34 @@ Without `maxSteps`, a confused AI could loop forever calling tools.
 
 Before diving deeper, understand these terms:
 
-| Term                  | Definition                        | Example                                          |
-| --------------------- | --------------------------------- | ------------------------------------------------ |
-| **Provider**          | Company that hosts AI models      | OpenAI, Anthropic, Google                        |
-| **Model**             | Specific AI version               | GPT-4, Claude 3, Gemini                          |
-| **Agent**             | AI + Tools + Loop                 | Your application                                 |
-| **Tool**              | Function the AI can call          | `searchFiles`, `readFile`                        |
-| **Tool Call**         | When AI decides to use a tool     | AI sends `{tool: "readFile", args: {path: "x"}}` |
-| **Streaming**         | Getting response word-by-word     | `for await (const chunk of stream)`              |
-| **Blocking**          | Waiting for complete response     | `await generateText()`                           |
-| **Provider-Agnostic** | Works with any provider           | Switch OpenAI → Anthropic easily                 |
-| **Transform**         | Modifying messages for a provider | Fixing tool IDs for Mistral                      |
-| **Registry**          | Map of available providers        | `providers.get("openai")`                        |
+| Term | Definition | Example |
+|------|------------|---------|
+| **ToolLoopAgent** | AI SDK class for automatic agent loops | `new ToolLoopAgent({ model, tools })` |
+| **Provider** | Company that hosts AI models | OpenAI, Anthropic, Google |
+| **Model** | Specific AI version | GPT-4, Claude 3, Gemini |
+| **Agent** | AI + Tools + Loop | Your ToolLoopAgent instance |
+| **Tool** | Function the AI can call | `searchFiles`, `readFile` |
+| **Tool Call** | When AI decides to use a tool | AI sends `{tool: "readFile", args: {path: "x"}}` |
+| **Streaming** | Getting response word-by-word | `for await (const chunk of stream)` |
+| **Blocking** | Waiting for complete response | `await agent.run()` |
+| **Provider-Agnostic** | Works with any provider | Switch OpenAI → Anthropic easily |
+| **Transform** | Modifying messages for a provider | Fixing tool IDs for Mistral |
+| **Registry** | Map of available providers | `providers.get("openai")` |
 
 ---
 
 ## Why Build a Provider Registry?
 
-You might wonder: _"Why not just use `createOpenAI()` directly?"_
+You might wonder: _"Why not just hardcode the model string?"_
 
 **Without a registry:**
 
 ```typescript
-// Tightly coupled to OpenAI
-import { createOpenAI } from "@ai-sdk/openai";
-
-const openai = createOpenAI({ apiKey });
-const model = openai.languageModel("gpt-4");
+// Tightly coupled to one provider
+const agent = new ToolLoopAgent({
+  model: "openai/gpt-4o",
+  tools,
+});
 ```
 
 **Problems:**
@@ -216,14 +212,14 @@ const model = openai.languageModel("gpt-4");
 
 ```typescript
 // Switch providers by changing one string
-const model = registry.getModel("openai", "gpt-4");
-// const model = registry.getModel("anthropic", "claude-3")
+const agent = createAgent("openai", "gpt-4o");
+// const agent = createAgent("anthropic", "claude-3-sonnet");
 
 // Automatic fallback
-const model = await registry.getModelWithFallback(["openai", "anthropic"]);
+const agent = createAgentWithFallback(["openai", "anthropic"]);
 
 // Quirks handled automatically
-const messages = transform.normalize(rawMessages, "anthropic");
+const agent = createAgent("mistral", "large"); // Tool IDs auto-sanitized
 ```
 
 **When you DON'T need a registry:**
@@ -311,11 +307,6 @@ export OPENAI_API_KEY=sk-...
 **Cause:** AI sent wrong arguments to your tool
 **Fix:** Check your Zod schema - make descriptions clearer
 
-### "maxSteps reached"
-
-**Cause:** Agent kept calling tools without finishing
-**Fix:** Increase `maxSteps` or check if tools return clear results
-
 ### "Context length exceeded"
 
 **Cause:** Conversation too long for model
@@ -339,22 +330,24 @@ Before building production agents:
 
 ## Key Design Decisions
 
-### 1. Why `streamText` vs `generateText`?
+### 1. Why ToolLoopAgent instead of streamText?
 
-**streamText** (used in examples):
+**ToolLoopAgent** (modern approach):
 
-- ✅ Shows response word-by-word (feels faster)
-- ✅ Lower latency to first token
-- ✅ Can cancel mid-generation
-- ❌ Slightly more complex code (async iterator)
+- ✅ Automatic loop management (no maxSteps needed)
+- ✅ Cleaner API (model as string, not function call)
+- ✅ Better type safety with `InferAgentUIMessage`
+- ✅ Native tool execution support
+- ✅ Simpler mental model
 
-**generateText**:
+**streamText** (legacy approach):
 
-- ✅ Simpler code (await and done)
-- ✅ Access complete response immediately
-- ❌ Must wait for full response
+- ❌ Manual step tracking with maxSteps
+- ❌ More verbose syntax
+- ❌ Limited type inference
+- ❌ You manage conversation state
 
-**Recommendation:** Use `streamText` for interactive agents, `generateText` for batch processing.
+**Recommendation:** Use `ToolLoopAgent` for all new development.
 
 ### 2. Why Provider-Agnostic?
 
@@ -362,7 +355,7 @@ Before building production agents:
 
 **Without registry:** Scramble to rewrite code for Anthropic. Downtime: hours.
 
-**With registry:** Change one string: `getModel("openai", ...)` → `getModel("anthropic", ...)`. Downtime: seconds.
+**With registry:** Change one string: `createAgent("openai", ...)` → `createAgent("anthropic", ...)`. Downtime: seconds.
 
 ### 3. Why Not Just Use a Framework?
 
@@ -405,37 +398,52 @@ npm install @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google
 **Basic agent structure:**
 
 ```typescript
-import { openai } from "@ai-sdk/openai";
-import { streamText, tool } from "ai";
+import { ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
 
 const myTool = tool({
   description: "What this tool does",
-  parameters: z.object({ param: z.string() }),
+  inputSchema: z.object({ param: z.string() }),
   execute: async ({ param }) => ({ result: "..." }),
 });
 
-const result = await streamText({
-  model: openai("gpt-4o-mini"),
+const agent = new ToolLoopAgent({
+  model: "openai/gpt-4o-mini",
+  instructions: "You are a helpful assistant.",
   tools: { myTool },
-  maxSteps: 10,
-  messages: [{ role: "user", content: "..." }],
 });
+
+const result = await agent.run("Do something");
 ```
 
 **Switch providers:**
 
 ```typescript
 // OpenAI
-import { openai } from "@ai-sdk/openai";
-
-const model = openai("gpt-4o");
+const agent = new ToolLoopAgent({
+  model: "openai/gpt-4o",
+  tools,
+});
 
 // Anthropic
-import { anthropic } from "@ai-sdk/anthropic";
-
-const model = anthropic("claude-3-sonnet");
+const agent = new ToolLoopAgent({
+  model: "anthropic/claude-3-sonnet",
+  tools,
+});
 
 // Same code works for both!
-const result = await streamText({ model, tools, messages });
+const result = await agent.run("...");
+```
+
+**Type-safe UI with React:**
+
+```typescript
+import { InferAgentUIMessage } from "ai";
+import { useChat } from "@ai-sdk/react";
+
+// Infer types from your agent
+export type MyAgentUIMessage = InferAgentUIMessage<typeof agent>;
+
+// Use in your React component
+const { messages } = useChat<MyAgentUIMessage>();
 ```

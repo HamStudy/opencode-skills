@@ -1,11 +1,12 @@
 /**
- * COMPLETE AGENT SYSTEM EXAMPLE
+ * COMPLETE AGENT SYSTEM EXAMPLE WITH TOOLOOPAGENT
  *
  * This file demonstrates a production-ready agent system with:
+ * - ToolLoopAgent for automatic tool loop management (modern approach)
  * - Multi-provider support (OpenAI, Anthropic, etc.)
  * - Tool calling (search, read, write files)
  * - Provider registry pattern
- * - Both streaming and blocking responses
+ * - Type-safe agent definitions
  *
  * PREREQUISITES:
  * 1. Create a .env file with:
@@ -22,11 +23,8 @@
  * Start with cheap models (gpt-4o-mini, claude-3-haiku) while testing.
  */
 
-import { createOpenAI } from "@ai-sdk/openai";
-import { createAnthropic } from "@ai-sdk/anthropic";
-import { streamText, generateText, tool } from "ai";
+import { ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
-import type { LanguageModelV2 } from "@ai-sdk/provider";
 import "dotenv/config"; // Automatically loads .env file
 
 // =============================================================================
@@ -36,8 +34,6 @@ import "dotenv/config"; // Automatically loads .env file
 /**
  * ModelInfo describes what a model can do.
  * This lets us check capabilities before using features.
- *
- * Example: Before sending an image, check if capabilities.input includes "image"
  */
 interface ModelInfo {
   id: string; // Model ID like "gpt-4o" or "claude-3-sonnet"
@@ -50,142 +46,8 @@ interface ModelInfo {
   };
 }
 
-/**
- * ProviderAdapter is the interface every provider must implement.
- * This is the key abstraction that lets us switch providers easily.
- *
- * Why this pattern? Without it, every tool call would need provider-specific code.
- * With it: getModel("openai", "gpt-4") and getModel("anthropic", "claude")
- * both return the same interface.
- */
-interface ProviderAdapter {
-  readonly id: string; // Unique provider identifier
-  languageModel(modelId: string): LanguageModelV2; // Get a model instance
-  models?(): Promise<ModelInfo[]>; // Optional: list available models
-}
-
 // =============================================================================
-// SECTION 2: PROVIDER REGISTRY
-// =============================================================================
-
-/**
- * ProviderRegistry manages multiple AI providers in one place.
- *
- * BENEFITS:
- * 1. Switch providers by changing one string
- * 2. Cache model instances (don't recreate them)
- * 3. Centralized error handling
- * 4. Easy to add new providers
- *
- * WITHOUT THIS: You'd have provider-specific code scattered throughout your app.
- * WITH THIS: One place to manage all providers.
- */
-class ProviderRegistry {
-  // Map of provider ID → adapter instance
-  private providers = new Map<string, ProviderAdapter>();
-
-  // Cache of "provider/model" → model instance
-  // Caching is important: creating model instances has overhead
-  private modelCache = new Map<string, LanguageModelV2>();
-
-  /**
-   * Register a provider adapter.
-   * Call this once at startup for each provider you want to use.
-   *
-   * Example:
-   *   registry.register(new OpenAIAdapter(process.env.OPENAI_API_KEY))
-   *   registry.register(new AnthropicAdapter(process.env.ANTHROPIC_API_KEY))
-   */
-  register(adapter: ProviderAdapter) {
-    this.providers.set(adapter.id, adapter);
-  }
-
-  /**
-   * Get a provider adapter by ID.
-   * Throws error if provider not registered.
-   */
-  get(providerId: string) {
-    const provider = this.providers.get(providerId);
-    if (!provider) {
-      throw new Error(
-        `Provider not found: ${providerId}. ` +
-          `Registered: ${Array.from(this.providers.keys()).join(", ")}`,
-      );
-    }
-    return provider;
-  }
-
-  /**
-   * Get a model instance for a specific provider/model combo.
-   * Uses caching to avoid recreating model instances.
-   *
-   * Example:
-   *   const model = registry.getModel("openai", "gpt-4o")
-   *   const model = registry.getModel("anthropic", "claude-3-sonnet")
-   */
-  getModel(providerId: string, modelId: string) {
-    const cacheKey = `${providerId}/${modelId}`;
-
-    // Only create model if not in cache
-    if (!this.modelCache.has(cacheKey)) {
-      const provider = this.get(providerId);
-      const model = provider.languageModel(modelId);
-      this.modelCache.set(cacheKey, model);
-    }
-
-    return this.modelCache.get(cacheKey)!;
-  }
-}
-
-// =============================================================================
-// SECTION 3: PROVIDER ADAPTERS
-// =============================================================================
-
-/**
- * OpenAI Adapter - wraps the OpenAI SDK
- *
- * Each adapter handles provider-specific setup:
- * - Authentication
- * - SDK initialization
- * - Model instance creation
- */
-class OpenAIAdapter implements ProviderAdapter {
-  readonly id = "openai";
-  private client; // The @ai-sdk/openai client
-
-  constructor(apiKey: string) {
-    // Initialize the OpenAI SDK client
-    this.client = createOpenAI({ apiKey });
-  }
-
-  /**
-   * Get a language model instance.
-   * The returned model can be used with streamText() or generateText()
-   */
-  languageModel(modelId: string) {
-    return this.client.languageModel(modelId);
-  }
-}
-
-/**
- * Anthropic Adapter - wraps the Anthropic SDK
- * Same pattern as OpenAIAdapter but for Claude models
- */
-class AnthropicAdapter implements ProviderAdapter {
-  readonly id = "anthropic";
-  private client;
-
-  constructor(apiKey: string) {
-    this.client = createAnthropic({ apiKey });
-  }
-
-  languageModel(modelId: string) {
-    return this.client.languageModel(modelId);
-  }
-}
-
-// =============================================================================
-// SECTION 4: TOOL DEFINITIONS
+// SECTION 2: TOOL DEFINITIONS
 // =============================================================================
 
 /**
@@ -193,16 +55,8 @@ class AnthropicAdapter implements ProviderAdapter {
  *
  * Each tool has:
  * - description: Tells the AI when to use this tool
- * - parameters: Zod schema defining what arguments to pass
+ * - inputSchema: Zod schema defining what arguments to pass
  * - execute: Your code that runs when AI calls the tool
- *
- * HOW IT WORKS:
- * 1. User sends message: "Find TypeScript files"
- * 2. AI decides to call search tool
- * 3. AI generates arguments: { pattern: "*.ts" }
- * 4. Your execute() function runs with those arguments
- * 5. Result goes back to AI
- * 6. AI responds to user with the results
  */
 const tools = {
   /**
@@ -211,11 +65,10 @@ const tools = {
    */
   search: tool({
     description: "Search for files matching a glob pattern (e.g., '**/*.ts')",
-    parameters: z.object({
+    inputSchema: z.object({
       pattern: z.string().describe("Glob pattern like '**/*.ts' or '*.json'"),
     }),
     execute: async ({ pattern }: { pattern: string }) => {
-      // In a real app, you'd use fs.glob or similar
       console.log(`[Tool: search] Looking for: ${pattern}`);
 
       // Simulated results
@@ -231,7 +84,7 @@ const tools = {
    */
   readFile: tool({
     description: "Read the contents of a file",
-    parameters: z.object({
+    inputSchema: z.object({
       path: z.string().describe("Relative file path like 'src/index.ts'"),
     }),
     execute: async ({ path }) => {
@@ -250,7 +103,7 @@ const tools = {
    */
   writeFile: tool({
     description: "Write content to a file (creates or overwrites)",
-    parameters: z.object({
+    inputSchema: z.object({
       path: z.string().describe("File path to write"),
       content: z.string().describe("Content to write to the file"),
     }),
@@ -266,16 +119,66 @@ const tools = {
 };
 
 // =============================================================================
-// SECTION 5: AGENT SYSTEM
+// SECTION 3: PROVIDER REGISTRY WITH TOOLOOPAGENT
 // =============================================================================
 
 /**
- * AgentSystem is your main application class.
+ * ProviderRegistry manages multiple AI providers in one place.
+ *
+ * BENEFITS:
+ * 1. Switch providers by changing one string
+ * 2. Centralized error handling
+ * 3. Easy to add new providers
+ * 4. Works seamlessly with ToolLoopAgent
+ *
+ * WITHOUT THIS: You'd have provider-specific code scattered throughout your app.
+ * WITH THIS: One place to manage all providers.
+ */
+class ProviderRegistry {
+  // Map of provider ID → boolean (registered or not)
+  private providers = new Map<string, boolean>();
+
+  /**
+   * Register a provider.
+   * Call this once at startup for each provider you want to use.
+   */
+  register(providerId: string, apiKey?: string) {
+    if (apiKey) {
+      this.providers.set(providerId, true);
+      console.log(`[ProviderRegistry] ${providerId} provider registered`);
+    } else {
+      console.log(
+        `[ProviderRegistry] ${providerId} API key not set, skipping`,
+      );
+    }
+  }
+
+  /**
+   * Check if a provider is registered.
+   */
+  isRegistered(providerId: string): boolean {
+    return this.providers.has(providerId);
+  }
+
+  /**
+   * Get a list of registered providers.
+   */
+  getRegisteredProviders(): string[] {
+    return Array.from(this.providers.keys());
+  }
+}
+
+// =============================================================================
+// SECTION 4: AGENT SYSTEM WITH TOOLOOPAGENT
+// =============================================================================
+
+/**
+ * AgentSystem is your main application class using ToolLoopAgent.
  *
  * It orchestrates:
  * - Provider management
- * - Tool execution
- * - Streaming vs blocking responses
+ * - ToolLoopAgent creation and execution
+ * - Multi-provider support
  *
  * This is where you'd add your business logic:
  * - Custom logging
@@ -290,170 +193,134 @@ class AgentSystem {
     this.registry = new ProviderRegistry();
 
     // Register providers from environment variables
-    // Only registers if the env var is set
-    if (process.env.OPENAI_API_KEY) {
-      this.registry.register(new OpenAIAdapter(process.env.OPENAI_API_KEY));
-      console.log("[AgentSystem] OpenAI provider registered");
-    } else {
-      console.log("[AgentSystem] OPENAI_API_KEY not set, skipping OpenAI");
+    this.registry.register("openai", process.env.OPENAI_API_KEY);
+    this.registry.register("anthropic", process.env.ANTHROPIC_API_KEY);
+  }
+
+  /**
+   * Create a ToolLoopAgent for the specified provider and model.
+   *
+   * @param providerId - Which provider to use ("openai", "anthropic")
+   * @param modelId - Which model ("gpt-4o", "claude-3-sonnet")
+   * @param customInstructions - Optional custom system instructions
+   *
+   * EXAMPLE USAGE:
+   *   const agent = new AgentSystem()
+   *
+   *   // Create an agent with OpenAI
+   *   const openaiAgent = agent.createAgent("openai", "gpt-4o-mini")
+   *
+   *   // Create an agent with Anthropic
+   *   const anthropicAgent = agent.createAgent("anthropic", "claude-3-haiku")
+   */
+  createAgent(
+    providerId: string,
+    modelId: string,
+    customInstructions?: string,
+  ): ToolLoopAgent<typeof tools> {
+    if (!this.registry.isRegistered(providerId)) {
+      throw new Error(
+        `Provider not registered: ${providerId}. ` +
+          `Registered: ${this.registry.getRegisteredProviders().join(", ")}`,
+      );
     }
 
-    if (process.env.ANTHROPIC_API_KEY) {
-      this.registry.register(
-        new AnthropicAdapter(process.env.ANTHROPIC_API_KEY),
-      );
-      console.log("[AgentSystem] Anthropic provider registered");
-    } else {
-      console.log(
-        "[AgentSystem] ANTHROPIC_API_KEY not set, skipping Anthropic",
-      );
-    }
+    // ToolLoopAgent uses "provider/model" format for model IDs
+    const fullModelId = `${providerId}/${modelId}`;
+
+    return new ToolLoopAgent({
+      model: fullModelId,
+      instructions:
+        customInstructions ||
+        "You are a helpful assistant that can use tools to help users accomplish tasks. Be concise and direct in your responses.",
+      tools,
+    });
   }
 
   /**
    * Run an agent with the given prompt.
    *
-   * @param providerId - Which provider to use ("openai", "anthropic")
-   * @param modelId - Which model ("gpt-4o", "claude-3-sonnet")
+   * @param providerId - Which provider to use
+   * @param modelId - Which model
    * @param prompt - User's request
-   * @param options - stream: true for real-time output, false for complete response
    *
    * EXAMPLE USAGE:
    *   const agent = new AgentSystem()
-   *
-   *   // Streaming (shows output as it's generated)
-   *   await agent.runAgent("openai", "gpt-4o-mini", "Find all TS files", { stream: true })
-   *
-   *   // Blocking (waits for complete response)
-   *   const result = await agent.runAgent("anthropic", "claude-3-haiku", "Explain this code")
+   *   const result = await agent.run("openai", "gpt-4o-mini", "Find all TS files")
+   *   console.log(result.text)
    */
-  async runAgent(
+  async run(
     providerId: string,
     modelId: string,
     prompt: string,
-    options: { stream?: boolean; maxSteps?: number } = {},
-  ) {
-    // Get the model from registry
-    const model = this.registry.getModel(providerId, modelId);
-
+  ): Promise<{ text: string; toolCalls: unknown[] }> {
     console.log(`\n[AgentSystem] Running with ${providerId}/${modelId}`);
     console.log(`[AgentSystem] Prompt: ${prompt.slice(0, 80)}...\n`);
 
-    // Choose streaming or blocking based on options
-    if (options.stream) {
-      return this.runStreaming(model, prompt, options.maxSteps);
-    } else {
-      return this.runBlocking(model, prompt, options.maxSteps);
-    }
-  }
+    const agent = this.createAgent(providerId, modelId);
 
-  /**
-   * Run in streaming mode - outputs text as it's generated.
-   *
-   * BENEFITS:
-   * - Lower latency (see first word immediately)
-   * - Better UX (feels more responsive)
-   * - Can cancel mid-generation
-   *
-   * USE WHEN: Interactive applications, chat interfaces
-   */
-  private async runStreaming(
-    model: LanguageModelV2,
-    prompt: string,
-    maxSteps = 10,
-  ) {
-    const result = await streamText({
-      model,
-      tools,
-      maxSteps,
-      messages: [{ role: "user", content: prompt }],
-    });
+    // ToolLoopAgent.run() automatically handles the tool loop
+    // No need to manage maxSteps or conversation state manually
+    const result = await agent.run(prompt);
 
-    console.log("[Streaming Response]\n");
-
-    // streamText returns an async iterator
-    // Each chunk is a piece of the response
-    for await (const chunk of result.textStream) {
-      process.stdout.write(chunk);
-    }
-
-    console.log("\n\n[Streaming complete]");
-  }
-
-  /**
-   * Run in blocking mode - waits for complete response.
-   *
-   * BENEFITS:
-   * - Simpler code (just await)
-   * - Access full response object
-   * - Easier error handling
-   *
-   * USE WHEN: Batch processing, scripts, when you need the full response
-   */
-  private async runBlocking(
-    model: LanguageModelV2,
-    prompt: string,
-    maxSteps = 10,
-  ) {
-    const result = await generateText({
-      model,
-      tools,
-      maxSteps,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    console.log("[Blocking Response]\n");
-    console.log(result.text);
-    console.log("\n[Blocking complete]");
-
-    // generateText returns metadata you might want:
-    // - result.usage (token counts)
-    // - result.finishReason (why it stopped)
-    // - result.toolCalls (what tools were called)
-
-    return result;
+    return {
+      text: result.text,
+      toolCalls: result.toolCalls || [],
+    };
   }
 }
 
 // =============================================================================
-// SECTION 6: USAGE EXAMPLES
+// SECTION 5: USAGE EXAMPLES
 // =============================================================================
 
 /**
- * Example: Running the agent with different providers and modes.
+ * Example: Running the agent with different providers.
  *
  * Uncomment the examples you want to try.
  * Remember: These make real API calls that cost money!
  */
 async function main() {
-  const agent = new AgentSystem();
+  const system = new AgentSystem();
 
-  // Example 1: Simple streaming request with OpenAI (cheapest option)
-  console.log("=== Example 1: OpenAI Streaming ===");
-  await agent.runAgent(
+  // Example 1: Simple request with OpenAI (cheapest option)
+  console.log("=== Example 1: OpenAI Agent ===");
+  const result1 = await system.run(
     "openai",
     "gpt-4o-mini", // Cheap model for testing
     "What files exist in this project?",
-    { stream: true, maxSteps: 3 },
   );
+  console.log("\n[Response]", result1.text);
+  console.log("[Tool calls made]", result1.toolCalls.length);
 
-  // Example 2: Blocking request with Anthropic
-  console.log("\n=== Example 2: Anthropic Blocking ===");
-  const result = await agent.runAgent(
+  // Example 2: Request with Anthropic
+  console.log("\n=== Example 2: Anthropic Agent ===");
+  const result2 = await system.run(
     "anthropic",
     "claude-3-haiku", // Also cheap for testing
     "Read the file src/index.ts and explain what it does",
-    { stream: false, maxSteps: 5 },
   );
+  console.log("\n[Response]", result2.text);
 
   // Example 3: Multi-step agent task
   console.log("\n=== Example 3: Multi-step Task ===");
-  await agent.runAgent(
+  const result3 = await system.run(
     "openai",
     "gpt-4o-mini",
     "Find all TypeScript files, then read the first one and summarize it",
-    { stream: true, maxSteps: 10 },
   );
+  console.log("\n[Response]", result3.text);
+  console.log("[Tool calls made]", result3.toolCalls.length);
+
+  // Example 4: Custom instructions
+  console.log("\n=== Example 4: Custom Instructions ===");
+  const customAgent = system.createAgent(
+    "openai",
+    "gpt-4o-mini",
+    "You are a file management expert. Be very thorough when analyzing files.",
+  );
+  const result4 = await customAgent.run("What files do we have?");
+  console.log("\n[Response]", result4.text);
 
   console.log("\n=== All examples complete ===");
 }
@@ -463,10 +330,12 @@ if (import.meta.main) {
   main().catch((error) => {
     console.error("\n[Error]", error.message);
     console.error("\nDid you set up your .env file with API keys?");
-    console.error("Create .env with:\n  OPENAI_API_KEY=sk-your-key");
+    console.error("Create .env with:");
+    console.error("  OPENAI_API_KEY=sk-your-key");
+    console.error("  ANTHROPIC_API_KEY=sk-ant-your-key");
     process.exit(1);
   });
 }
 
 // Export classes for use in other files
-export { AgentSystem, ProviderRegistry, OpenAIAdapter, AnthropicAdapter };
+export { AgentSystem, ProviderRegistry, tools };
