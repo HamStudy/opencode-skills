@@ -1,11 +1,19 @@
 /**
  * OAUTH IMPLEMENTATION FOR CHATGPT/CODEX WITH MANDATORY REFRESH TOKEN SUPPORT
  *
- * ⚠️  IMPORTANT: This file shows the specific OAuth flow for OpenAI/Codex.
- *     If you want to use OpenAI/Codex with OAuth, you MUST use these endpoints:
+ * ⚠️  CRITICAL: OpenAI/Codex OAuth uses DIFFERENT ENDPOINTS than regular OpenAI API:
+ *
+ *     OAuth Flow (ChatGPT Pro/Plus subscription):
  *     - Authorization: https://chatgpt.com/backend-api/codex/authorize
  *     - Token: https://chatgpt.com/backend-api/codex/token
+ *     - API Endpoint: https://chatgpt.com/backend-api/codex/responses
  *     - Client ID: "codex_cli"
+ *
+ *     Regular API Key Auth:
+ *     - API Endpoint: https://api.openai.com/v1
+ *
+ *     When using OAuth, requests are rewritten to the Codex endpoint (chatgpt.com),
+ *     NOT the standard OpenAI API endpoint (api.openai.com).
  *
  * ⚠️  CRITICAL REQUIREMENT: Your OAuth implementation MUST support refresh tokens.
  *     Access tokens expire (usually in 1-2 hours). Without refresh token support,
