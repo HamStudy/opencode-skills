@@ -1,0 +1,26 @@
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Ignore temporary files
+*.tmp
+*.log
+
+# Ignore node_modules if any examples use npm
+node_modules/
+
+# Ignore environment files (should never be committed)
+.env
+.env.*
+!.env.example
+
+# Ignore test artifacts
+coverage/
+.nyc_output/
