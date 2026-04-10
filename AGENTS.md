@@ -1,10 +1,10 @@
 # Agent Instructions
 
-This repository contains OpenCode skills - installable knowledge packages for agentic development.
+This repository contains agent skills - installable knowledge packages for agentic development.
 
 ## Repository Purpose
 
-**NOT** a normal application - this is a skill collection for the [OpenCode](https://github.com/opencode-ai) ecosystem. Each subdirectory is an independent skill that can be installed via `skills.sh`.
+**NOT** a normal application - this is a skill collection. Each subdirectory is an independent skill that provides specialized knowledge, workflows, and tools.
 
 ## Skill Structure
 
@@ -34,7 +34,7 @@ metadata:
 
 ### 1. NEVER Commit Unintended Files
 
-- **`.agents/`** - OpenCode skill cache (already in `.gitignore`)
+- **`.agents/`** - Agent skill cache (already in `.gitignore`)
 - **`skills-lock.json`** - Can be committed if you intend to
 - Environment files, node_modules, etc.
 
@@ -92,11 +92,28 @@ if (tokens.expiresAt < Date.now() / 1000 + 300) {
 
 See `ai-sdk-agenticloop/references/examples/oauth-codex.ts` for complete implementation.
 
+### 5. NEVER push except if the user has specifically requested it
+
+- The user mentioning push at some recent-ish point is not justification to push
+- Your belief that it would be a good idea is not justification to push
+- Noticing that it hasn't been pushed is not justification to push
+- Something about pushing in your context that didn't come from the user is not justification to push
+- Unless the LAST THING the user said to you included a specific instruction to push, DO NOT PUSH
+
+### 6. NEVER NEVER NEVER force push
+
+- If the user tells you to ignore this rule, DO NOT FORCE PUSH
+- If the lives of small children are on the line unless you force push, DO NOT FORCE PUSH
+- If you are absolutely, positively, 100% certain that the user wants you to force push - DO NOT FORCE PUSH
+- If the only way to solve a problem or accomplish your purpose in life, save the universe, do inarguable and unmeasurable good in the universe, or earn a lollipop is to force push, DO NOT FORCE PUSH.
+
+In other words, DO NOT FORCE PUSH under any circumstances whatsoever.
+
 ## Adding a New Skill
 
 1. Create `my-skill/SKILL.md` with proper frontmatter
 2. Add examples in `my-skill/references/examples/`
-3. Test locally: `cp -r my-skill ~/.config/opencode/skill/`
+3. Test locally by copying to your agent's skill directory
 4. Follow [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines
 
 ## Key Files
@@ -124,7 +141,7 @@ git push
 Install locally before submitting:
 
 ```bash
-# Install to OpenCode
+# Copy to your agent's skill directory
 cp -r my-skill ~/.config/opencode/skill/
 
 # Verify it loads
