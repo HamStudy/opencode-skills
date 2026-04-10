@@ -20,7 +20,7 @@
  *    npx tsx complete-agent.ts
  *
  * COST WARNING: This example makes real API calls that cost money.
- * Start with cheap models (gpt-4o-mini, claude-3-haiku) while testing.
+ * Start with cheap models (gpt-5.4-mini, claude-haiku) while testing.
  */
 
 import { ToolLoopAgent, tool } from "ai";
@@ -36,7 +36,7 @@ import "dotenv/config"; // Automatically loads .env file
  * This lets us check capabilities before using features.
  */
 interface ModelInfo {
-  id: string; // Model ID like "gpt-4o" or "claude-3-sonnet"
+  id: string; // Model ID like "gpt-5.4" or "claude-3-sonnet"
   provider: string; // Provider ID like "openai" or "anthropic"
   capabilities: {
     input: string[]; // What inputs it accepts: ["text", "image", "audio", "pdf"]
@@ -201,17 +201,17 @@ class AgentSystem {
    * Create a ToolLoopAgent for the specified provider and model.
    *
    * @param providerId - Which provider to use ("openai", "anthropic")
-   * @param modelId - Which model ("gpt-4o", "claude-3-sonnet")
+   * @param modelId - Which model ("gpt-5.4", "claude-3-sonnet")
    * @param customInstructions - Optional custom system instructions
    *
    * EXAMPLE USAGE:
    *   const agent = new AgentSystem()
    *
    *   // Create an agent with OpenAI
-   *   const openaiAgent = agent.createAgent("openai", "gpt-4o-mini")
+   *   const openaiAgent = agent.createAgent("openai", "gpt-5.4-mini")
    *
    *   // Create an agent with Anthropic
-   *   const anthropicAgent = agent.createAgent("anthropic", "claude-3-haiku")
+   *   const anthropicAgent = agent.createAgent("anthropic", "claude-haiku")
    */
   createAgent(
     providerId: string,
@@ -246,7 +246,7 @@ class AgentSystem {
    *
    * EXAMPLE USAGE:
    *   const agent = new AgentSystem()
-   *   const result = await agent.run("openai", "gpt-4o-mini", "Find all TS files")
+   *   const result = await agent.run("openai", "gpt-5.4-mini", "Find all TS files")
    *   console.log(result.text)
    */
   async run(
@@ -287,7 +287,7 @@ async function main() {
   console.log("=== Example 1: OpenAI Agent ===");
   const result1 = await system.run(
     "openai",
-    "gpt-4o-mini", // Cheap model for testing
+    "gpt-5.4-mini", // Cheap model for testing
     "What files exist in this project?",
   );
   console.log("\n[Response]", result1.text);
@@ -297,7 +297,7 @@ async function main() {
   console.log("\n=== Example 2: Anthropic Agent ===");
   const result2 = await system.run(
     "anthropic",
-    "claude-3-haiku", // Also cheap for testing
+    "claude-haiku", // Also cheap for testing
     "Read the file src/index.ts and explain what it does",
   );
   console.log("\n[Response]", result2.text);
@@ -306,7 +306,7 @@ async function main() {
   console.log("\n=== Example 3: Multi-step Task ===");
   const result3 = await system.run(
     "openai",
-    "gpt-4o-mini",
+    "gpt-5.4-mini",
     "Find all TypeScript files, then read the first one and summarize it",
   );
   console.log("\n[Response]", result3.text);
@@ -316,7 +316,7 @@ async function main() {
   console.log("\n=== Example 4: Custom Instructions ===");
   const customAgent = system.createAgent(
     "openai",
-    "gpt-4o-mini",
+    "gpt-5.4-mini",
     "You are a file management expert. Be very thorough when analyzing files.",
   );
   const result4 = await customAgent.run("What files do we have?");

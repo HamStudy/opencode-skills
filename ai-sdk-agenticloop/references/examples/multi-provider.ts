@@ -107,7 +107,7 @@ class MultiProviderPool {
   /**
    * Create a ToolLoopAgent for a specific provider and model.
    *
-   * ToolLoopAgent uses the "provider/model" format (e.g., "openai/gpt-4o")
+   * ToolLoopAgent uses the "provider/model" format (e.g., "openai/gpt-5.4")
    * making it trivial to switch providers.
    */
   createAgent(
@@ -184,8 +184,8 @@ class MultiProviderPool {
 
     // Define preferred models for each provider
     if (this.isProviderAvailable("openai")) {
-      configs.push({ provider: "openai", model: "gpt-4o", priority: 100 });
-      configs.push({ provider: "openai", model: "gpt-4o-mini", priority: 80 });
+      configs.push({ provider: "openai", model: "gpt-5.4", priority: 100 });
+      configs.push({ provider: "openai", model: "gpt-5.4-mini", priority: 80 });
     }
 
     if (this.isProviderAvailable("anthropic")) {
@@ -209,9 +209,9 @@ async function main() {
   try {
     const result1 = await pool.executeWithFallback(
       [
-        { provider: "openai", model: "gpt-4o", priority: 100 },
+        { provider: "openai", model: "gpt-5.4", priority: 100 },
         { provider: "anthropic", model: "claude-sonnet-4", priority: 90 },
-        { provider: "openai", model: "gpt-4o-mini", priority: 50 },
+        { provider: "openai", model: "gpt-5.4-mini", priority: 50 },
       ],
       "Calculate 12345 * 67890 and explain the result",
     );
@@ -238,7 +238,7 @@ async function main() {
 
   console.log("\n=== Example 3: Direct Agent Creation ===");
   try {
-    const agent = pool.createAgent("openai", "gpt-4o-mini");
+    const agent = pool.createAgent("openai", "gpt-5.4-mini");
     const result3 = await agent.run("Calculate 2 + 2");
     console.log("[Result]", result3.text);
   } catch (error) {

@@ -64,7 +64,7 @@ bun add ai @ai-sdk/openai zod
 ```
 
 **Cost Warning:**
-⚠️ **Running agents costs money.** Each "step" in the conversation calls the AI provider's API. A 10-step conversation with GPT-4 might cost $0.05-$0.50. Start with cheaper models like `gpt-4o-mini` while learning.
+⚠️ **Running agents costs money.** Each "step" in the conversation calls the AI provider's API. A 10-step conversation with GPT-4 might cost $0.05-$0.50. Start with cheaper models like `gpt-5.4-mini` while learning.
 
 ---
 
@@ -92,7 +92,7 @@ const calculator = tool({
 
 // 2. Create the agent with ToolLoopAgent
 const agent = new ToolLoopAgent({
-  model: "openai/gpt-4o-mini", // Cheap model for testing
+  model: "openai/gpt-5.4-mini", // Cheap model for testing
   instructions: "You are a helpful assistant that can use tools to help users.",
   tools: { calculator },
 });
@@ -196,7 +196,7 @@ You might wonder: _"Why not just hardcode the model string?"_
 ```typescript
 // Tightly coupled to one provider
 const agent = new ToolLoopAgent({
-  model: "openai/gpt-4o",
+  model: "openai/gpt-5.4",
   tools,
 });
 ```
@@ -212,7 +212,7 @@ const agent = new ToolLoopAgent({
 
 ```typescript
 // Switch providers by changing one string
-const agent = createAgent("openai", "gpt-4o");
+const agent = createAgent("openai", "gpt-5.4");
 // const agent = createAgent("anthropic", "claude-3-sonnet");
 
 // Automatic fallback
@@ -323,7 +323,7 @@ Before building production agents:
 - [ ] **Install `dotenv`** for loading env vars
 - [ ] **Set up TypeScript** (`tsconfig.json`)
 - [ ] **Choose primary provider** (start with one)
-- [ ] **Test with cheap model** (gpt-4o-mini, claude-3-haiku)
+- [ ] **Test with cheap model** (gpt-5.4-mini, claude-3-haiku)
 - [ ] **Budget monitoring** (track API costs)
 
 ---
@@ -408,7 +408,7 @@ const myTool = tool({
 });
 
 const agent = new ToolLoopAgent({
-  model: "openai/gpt-4o-mini",
+  model: "openai/gpt-5.4-mini",
   instructions: "You are a helpful assistant.",
   tools: { myTool },
 });
@@ -421,7 +421,7 @@ const result = await agent.run("Do something");
 ```typescript
 // OpenAI
 const agent = new ToolLoopAgent({
-  model: "openai/gpt-4o",
+  model: "openai/gpt-5.4",
   tools,
 });
 
