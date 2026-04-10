@@ -1,8 +1,9 @@
 /**
  * OAUTH IMPLEMENTATION FOR CHATGPT/CODEX WITH MANDATORY REFRESH TOKEN SUPPORT
  *
- * ⚠️  CRITICAL: OpenAI/Codex OAuth uses DIFFERENT ENDPOINTS than regular OpenAI API:
+ * ⚠️  CRITICAL: OpenAI/Codex OAuth uses DIFFERENT ENDPOINTS and BEHAVIOR than regular OpenAI API:
  *
+ *     ENDPOINTS:
  *     OAuth Flow (ChatGPT Pro/Plus subscription):
  *     - Authorization: https://chatgpt.com/backend-api/codex/authorize
  *     - Token: https://chatgpt.com/backend-api/codex/token
@@ -11,6 +12,14 @@
  *
  *     Regular API Key Auth:
  *     - API Endpoint: https://api.openai.com/v1
+ *
+ *     BEHAVIOR DIFFERENCES:
+ *     1. Model filtering: Only specific models work with OAuth (gpt-5.* variants, codex models)
+ *     2. No costs: Usage is included with ChatGPT subscription (costs shown as 0)
+ *     3. Special headers: Requires ChatGPT-Account-Id header for organization accounts
+ *     4. URL rewriting: Requests to /v1/responses or /chat/completions are rewritten to Codex endpoint
+ *     5. Parameter differences: maxOutputTokens should be undefined for Codex
+ *     6. Bearer tokens: Uses OAuth access token instead of API key in Authorization header
  *
  *     When using OAuth, requests are rewritten to the Codex endpoint (chatgpt.com),
  *     NOT the standard OpenAI API endpoint (api.openai.com).
